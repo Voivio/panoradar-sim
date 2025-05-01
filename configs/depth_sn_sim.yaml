@@ -33,7 +33,8 @@ INPUT:
     JITTER_P: 0.5
 
 DATASETS:
-  BASE_PATH: "./data/signal-115-processed"
+  BASE_PATH: "./data/real"
+  SIM_BASE_PATH: "./data/signal-115-processed"
   TRAIN: ("sim_loso_train", )
   TEST:  ("sim_loso_test", )
 

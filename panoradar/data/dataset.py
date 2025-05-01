@@ -1,7 +1,7 @@
 import json
 import numpy as np
 
-from typing import List, Dict
+from typing import List, Dict, Literal
 from pathlib import Path
 from functools import partial
 from collections import OrderedDict
@@ -245,10 +245,17 @@ def register_sim_dataset(cfg):
     similar to `register_dataset`, but for the simulated dataset
 
     we only offer leave one sample out (sim_loso) or nothing out (sim_all)
-    """
-    base_path = Path(cfg.DATASETS.BASE_PATH)
 
-    all_scene_dirs = list(sorted(filter(lambda x: x.is_dir(), base_path.iterdir())))
+    A special building "all" means all buildings in the dataset.
+
+    + sim-real-[in/out]-SEED-#FRAMES-BUILDING1-BUILDING2-BUILDING3-...-[train/test/all]
+    + sim-mix-[in/out]-SEED-#SIMFRAMES-#FRAMES-BUILDING1-BUILDING2-BUILDING3-...-[train/test/all]
+    + sim_loso
+    + sim_all
+    """
+    # register the simulated datasets
+    sim_based_path = Path(cfg.DATASETS.SIM_BASE_PATH)
+    all_scene_dirs = list(sorted(filter(lambda x: x.is_dir(), sim_based_path.iterdir())))
     all_scene_train = list(filter(lambda x: not x.name.endswith('_val'), all_scene_dirs))
     all_scene_test = list(filter(lambda x: x.name.endswith('_val'), all_scene_dirs))
 
@@ -259,12 +266,133 @@ def register_sim_dataset(cfg):
         **metadata, vis_ind=get_vis_indices(all_scene_test, all_scene_test)
     )
 
-    DatasetCatalog.register('sim_all_train', partial(get_dataset_dicts, all_scene_train + all_scene_test))
+    DatasetCatalog.register('sim_all_train', partial(get_dataset_dicts, all_scene_dirs))
     MetadataCatalog.get('sim_all_train').set(**metadata)
     DatasetCatalog.register('sim_all_train_test', partial(get_dataset_dicts, all_scene_test))
     MetadataCatalog.get('sim_all_train_test').set(
         **metadata, vis_ind=get_vis_indices(all_scene_test, all_scene_test)
     )
+
+    # create datasets based on the config at run time
+    base_path = Path(cfg.DATASETS.BASE_PATH)
+    buildings_and_folders = {
+        "3401": ["3401_Walnut_moving", "3401_Walnut_static"],
+        "annenberg": ["annenberg_moving", "annenberg_static"],
+        "art_lib": ["art_library_moving"],
+        "chem": ["chem73_moving", "chem73_static"],
+        "design": ["design_moving", "design_static"],
+        "drl": ["DRL_moving", "DRL_static"],
+        "fisher": ["fisher_moving", "fisher_static"],
+        "houston": ["houston_hall_moving"],
+        "leidy": ["leidy_lab_moving"],
+        "levine": ["levine_moving", "levine_static"],
+        "levine_north": ["levine_north_moving", "levine_north_static"],
+        "levine_north_extra": ["levine_north_extra_moving"],
+        "moore": ["moore_moving", "moore_static"],
+        "moore_extra": ["moore_extra_moving"],
+        "singh": ["singh_nanotech_moving", "singh_nanotech_static"],
+        "skirkanich": ["skirkanich_moving", "skirkanich_static"],
+        "skirkanich_extra": ["skirkanich_extra_moving"],
+        "towne": ["towne_moving", "towne_static"],
+        "towne_extra": ["towne_extra_moving"],
+    }
+    all_buildings = list(sorted(buildings_and_folders.keys()))
+    all_building_folders = list(sorted([folder for folders in buildings_and_folders.values() for folder in folders]))
+
+    train_dataset_name = cfg.DATASETS.TRAIN[0]
+    test_dataset_name = cfg.DATASETS.TEST[0]
+
+    def get_real_trajectory(
+            buildings: List[str],
+            is_include_buildings: bool,
+            split_type: Literal["train", "test", "all"],
+    ) -> List[Path]:
+        """return the trajectory to add based on the buildings and the train/test split"""
+        buildings_to_add = []
+
+        if "all" in buildings:
+            # if "all" is in the buildings, we add all buildings
+            buildings_to_add = all_building_folders
+        else:
+            # otherwise, we add the buildings specified
+            for building in buildings:
+                if building in all_buildings:
+                    buildings_to_add.extend(buildings_and_folders[building])
+                elif building in all_building_folders:
+                    buildings_to_add.append(building)
+                else:
+                    print(f"Building {building} unknown, skipping...")
+
+        # if is_include_buildings is False, we remove the buildings to add from the all buildings
+        if not is_include_buildings:
+            buildings_to_add = [b for b in all_building_folders if b not in buildings_to_add]
+
+        # gather the trajectories to add
+        traj_to_add = []
+        for building in buildings_to_add:
+            if split_type == "train":
+                traj_to_add.extend(list(base_path.glob(f"{building}/exp*-00[!1]")))
+            elif split_type == "test":
+                traj_to_add.extend(list(base_path.glob(f"{building}/exp*-001")))
+            elif split_type == "all":
+                traj_to_add.extend(list(base_path.glob(f"{building}/exp*")))
+        traj_to_add = sorted(traj_to_add)
+        return traj_to_add
+
+    def register_name(dataset_name):
+        """Register the dataset with the given name at run time"""
+        if dataset_name in ["sim_loso_train", "sim_loso_test", "sim_all_train", "sim_all_train_test"]:
+            return
+
+        # we now handle mixture of real and simulated data
+        dataset_configs = dataset_name.split("-")
+        dataset_type = dataset_configs[1]
+
+        if dataset_type == "real":
+            # real data
+            is_include_buildings = dataset_configs[2] == "in"
+            seed = dataset_configs[3]
+            num_frames = dataset_configs[4]
+            buildings = dataset_configs[5:-1]
+            split_type = dataset_configs[-1]
+
+            traj_to_add = get_real_trajectory(
+                buildings=buildings,
+                is_include_buildings=is_include_buildings,
+                split_type=split_type,
+            )
+
+            DatasetCatalog.register(dataset_name, partial(get_dataset_dicts_upbound, traj_to_add, int(seed), int(num_frames)))
+            MetadataCatalog.get(dataset_name).set(
+                **metadata, vis_ind=list(range(min(100, int(num_frames))))
+            )
+        elif dataset_type == "mix":
+            # a mix of real and simulated data
+            is_include_buildings = dataset_configs[2] == "in"
+            seed = dataset_configs[3]
+            num_sim_frames = dataset_configs[4]
+            num_frames = dataset_configs[5]
+            buildings = dataset_configs[6:-1]
+            split_type = dataset_configs[-1]
+
+            real_traj_to_add = get_real_trajectory(
+                buildings=buildings,
+                is_include_buildings=is_include_buildings,
+                split_type=split_type,
+            )
+
+            DatasetCatalog.register(
+                dataset_name,
+                lambda: get_dataset_dicts_upbound(real_traj_to_add, int(seed), int(num_frames)) + get_dataset_dicts_upbound(all_scene_dirs, int(seed), int(num_sim_frames))
+            )
+            MetadataCatalog.get(dataset_name).set(
+                **metadata, vis_ind=list(range(min(100, int(num_frames))))
+            )
+
+    register_name(train_dataset_name)
+    register_name(test_dataset_name)
+
+
 
 
 def get_dataset_dicts(traj_paths: List[Path]) -> List[Dict]:
@@ -328,6 +456,18 @@ def get_dataset_dicts(traj_paths: List[Path]) -> List[Dict]:
             record["annotations"] = objs
             dataset_dicts.append(record)
     return dataset_dicts
+
+
+def get_dataset_dicts_upbound(traj_paths: List[Path], seed: int, n_frames: int) -> List[Dict]:
+    """
+    a wrapper for get_dataset_dicts, but with a limit on the number of frames
+    """
+    dataset_dicts = get_dataset_dicts(traj_paths)
+    rng = np.random.default_rng(seed)
+    indices = np.arange(len(dataset_dicts))
+    rng.shuffle(indices)
+    bounded_dataset_dicts = [dataset_dicts[i] for i in indices[:n_frames]]
+    return bounded_dataset_dicts
 
 
 def get_vis_indices(val_trajs: List[str], static_1k_trajs: List[str]) -> List[int]:

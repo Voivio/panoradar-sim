@@ -39,7 +39,8 @@ def get_panoradar_cfg() -> CfgNode:
     
     # ================ Data ======================
     _C.DATASETS.BASE_PATH = "./data"
-    
+    _C.DATASETS.SIM_BASE_PATH = "./data"
+
     # ================ Solver ====================
     _C.SOLVER.NAME = "SGD"
     _C.SOLVER.VALUES = (0.1, 0.01)
