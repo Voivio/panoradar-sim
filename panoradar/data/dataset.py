@@ -240,6 +240,33 @@ def register_dataset(cfg):
     # *******************************************************************************
 
 
+def register_sim_dataset(cfg):
+    """
+    similar to `register_dataset`, but for the simulated dataset
+
+    we only offer leave one sample out (sim_loso) or nothing out (sim_all)
+    """
+    base_path = Path(cfg.DATASETS.BASE_PATH)
+
+    all_scene_dirs = list(sorted(filter(lambda x: x.is_dir(), base_path.iterdir())))
+    all_scene_train = list(filter(lambda x: not x.name.endswith('_val'), all_scene_dirs))
+    all_scene_test = list(filter(lambda x: x.name.endswith('_val'), all_scene_dirs))
+
+    DatasetCatalog.register('sim_loso_train', partial(get_dataset_dicts, all_scene_train))
+    MetadataCatalog.get('sim_loso_train').set(**metadata)
+    DatasetCatalog.register('sim_loso_test', partial(get_dataset_dicts, all_scene_test))
+    MetadataCatalog.get('sim_loso_test').set(
+        **metadata, vis_ind=get_vis_indices(all_scene_test, all_scene_test)
+    )
+
+    DatasetCatalog.register('sim_all_train', partial(get_dataset_dicts, all_scene_train + all_scene_test))
+    MetadataCatalog.get('sim_all_train').set(**metadata)
+    DatasetCatalog.register('sim_all_train_test', partial(get_dataset_dicts, all_scene_test))
+    MetadataCatalog.get('sim_all_train_test').set(
+        **metadata, vis_ind=get_vis_indices(all_scene_test, all_scene_test)
+    )
+
+
 def get_dataset_dicts(traj_paths: List[Path]) -> List[Dict]:
     """Get the dataset dict from disk.
 

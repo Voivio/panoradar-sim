@@ -338,8 +338,9 @@ def draw_vis_image(
 
     if return_rgb:
         fig.canvas.draw()
-        whole_img = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        whole_img = whole_img.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        whole_img = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+        whole_img = whole_img.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+        whole_img = whole_img[:, :, :3]  # remove alpha channel
         whole_img = whole_img.transpose(2, 0, 1)  # (3, H, W)
         plt.close()
         return whole_img

@@ -1,6 +1,6 @@
 from detectron2.engine import default_argument_parser, default_setup, launch, DefaultPredictor
 
-from panoradar import get_panoradar_cfg, register_dataset, get_trainer_class
+from panoradar import get_panoradar_cfg, register_dataset, register_sim_dataset, get_trainer_class
 
 def main(args):
     cfg = get_panoradar_cfg()
@@ -8,8 +8,13 @@ def main(args):
     cfg.merge_from_list(args.opts)
 
     TrainClass = get_trainer_class(cfg)
-    default_setup(cfg, args) 
-    register_dataset(cfg)
+    default_setup(cfg, args)
+
+    is_sim = "sim" in cfg.DATASETS.TRAIN[0]
+    if is_sim:
+        register_sim_dataset(cfg)
+    else:
+        register_dataset(cfg)
 
     if args.eval_only:
         predictor = DefaultPredictor(cfg)
