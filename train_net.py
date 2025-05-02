@@ -10,10 +10,12 @@ def main(args):
     TrainClass = get_trainer_class(cfg)
     default_setup(cfg, args)
 
-    is_sim = "sim" in cfg.DATASETS.TRAIN[0]
-    if is_sim:
+    is_sim_needed = any(["sim" in cfg.DATASETS.TRAIN[0], "sim" in cfg.DATASETS.TEST[0]])
+    if is_sim_needed:
         register_sim_dataset(cfg)
-    else:
+
+    is_real_needed = any(["sim" not in cfg.DATASETS.TRAIN[0], "sim" not in cfg.DATASETS.TEST[0]])
+    if is_real_needed:
         register_dataset(cfg)
 
     if args.eval_only:
