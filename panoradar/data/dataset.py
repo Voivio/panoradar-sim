@@ -389,8 +389,10 @@ def register_sim_dataset(cfg):
                 **metadata, vis_ind=list(range(min(100, int(num_frames))))
             )
 
-    register_name(train_dataset_name)
-    register_name(test_dataset_name)
+    if "sim" in train_dataset_name:
+        register_name(train_dataset_name)
+    if "sim" in test_dataset_name:
+        register_name(test_dataset_name)
 
 
 
