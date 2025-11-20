@@ -252,6 +252,14 @@ def register_sim_dataset(cfg):
     + sim-mix-[in/out]-SEED-#SIMFRAMES-#FRAMES-BUILDING1-BUILDING2-BUILDING3-...-[train/test/all]
     + sim_loso
     + sim_all
+
+    The SEED can be:
+    + a single seed that is used by both real and simulated data
+    + a seed of the format "sim_seed+real_seed" that is used by simulated and real data respectively, in mix mode only
+
+    The #SIMFRAMES can be:
+    + a number that limits the number of simulated frames to add
+    + a number with a plus sign at the end (e.g., "500+") that means at least that many frames, and fill up to that number if not enough frames are available
     """
     # register the simulated datasets
     sim_based_path = Path(cfg.DATASETS.SIM_BASE_PATH)
@@ -362,7 +370,10 @@ def register_sim_dataset(cfg):
                 split_type=split_type,
             )
 
-            DatasetCatalog.register(dataset_name, partial(get_dataset_dicts_upbound, traj_to_add, int(seed), int(num_frames)))
+            DatasetCatalog.register(
+                dataset_name,
+                partial(get_dataset_dicts_upbound, traj_to_add, int(seed), int(num_frames))
+            )
             MetadataCatalog.get(dataset_name).set(
                 **metadata, vis_ind=list(range(min(100, int(num_frames))))
             )
@@ -371,9 +382,21 @@ def register_sim_dataset(cfg):
             is_include_buildings = dataset_configs[2] == "in"
             seed = dataset_configs[3]
             num_sim_frames = dataset_configs[4]
+
+            fill_sim_to_size = False
+            if num_sim_frames.endswith('+'):
+                fill_sim_to_size = True
+                num_sim_frames = num_sim_frames[:-1]
+
             num_frames = dataset_configs[5]
             buildings = dataset_configs[6:-1]
             split_type = dataset_configs[-1]
+
+            if "+" in seed:
+                sim_seed, real_seed = seed.split("+")
+            else:
+                sim_seed = seed
+                real_seed = seed
 
             real_traj_to_add = get_real_trajectory(
                 buildings=buildings,
@@ -383,7 +406,7 @@ def register_sim_dataset(cfg):
 
             DatasetCatalog.register(
                 dataset_name,
-                lambda: get_dataset_dicts_upbound(real_traj_to_add, int(seed), int(num_frames)) + get_dataset_dicts_upbound(all_scene_dirs, int(seed), int(num_sim_frames))
+                lambda: get_dataset_dicts_upbound(real_traj_to_add, int(real_seed), int(num_frames)) + get_dataset_dicts_upbound(all_scene_dirs, int(sim_seed), int(num_sim_frames), fill_to_size=fill_sim_to_size)
             )
             MetadataCatalog.get(dataset_name).set(
                 **metadata, vis_ind=list(range(min(100, int(num_frames))))
@@ -460,7 +483,7 @@ def get_dataset_dicts(traj_paths: List[Path]) -> List[Dict]:
     return dataset_dicts
 
 
-def get_dataset_dicts_upbound(traj_paths: List[Path], seed: int, n_frames: int) -> List[Dict]:
+def get_dataset_dicts_upbound(traj_paths: List[Path], seed: int, n_frames: int, fill_to_size: bool = False) -> List[Dict]:
     """
     a wrapper for get_dataset_dicts, but with a limit on the number of frames
     """
@@ -468,7 +491,16 @@ def get_dataset_dicts_upbound(traj_paths: List[Path], seed: int, n_frames: int) 
     rng = np.random.default_rng(seed)
     indices = np.arange(len(dataset_dicts))
     rng.shuffle(indices)
-    bounded_dataset_dicts = [dataset_dicts[i] for i in indices[:n_frames]]
+
+    if fill_to_size and len(dataset_dicts) < n_frames:
+        # Fill up to n_frames by resampling with replacement
+        num_needed = n_frames - len(dataset_dicts)
+        extra_indices = rng.choice(indices, size=num_needed, replace=True)
+        final_indices = np.concatenate((indices, extra_indices))
+        bounded_dataset_dicts = [dataset_dicts[i] for i in final_indices]
+    else:
+        bounded_dataset_dicts = [dataset_dicts[i] for i in indices[:n_frames]]
+
     return bounded_dataset_dicts
 
 
